@@ -1,13 +1,16 @@
+from dotenv import load_dotenv
+import argparse
+
 from ontology import *
 from ontology.drugs import main_drug
 from ontology.gene_hgnc import main_genes_hgnc
 from ontology.pathways import main_pathway
+
 from scripts.load import load_file, update_mapping
-from dotenv import load_dotenv
 from scripts.ontop_cli import materialize
-import argparse
 from scripts.neo_export import ontology_export
 from scripts.update_owl import update_owl
+
 
 class OntologyGroup:
     def load_ontologies(self):
@@ -35,34 +38,48 @@ class OntologyGroup:
         main_drug()
         main_pathway()
 
+def process_ontologies():
+    """
+    Note: uncomment this function call in main() if ontology processing is required.
+    """
+    ontology_group = OntologyGroup()
+    ontology_group.load_ontologies()
+    ontology_group.start()
 
-if __name__ == '__main__':
+
+def update_semantics(mapping_file: str, owl_file: str):
+    update_mapping(mapping_file)
+    update_owl(owl_file)
+
+
+def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_file")
+    return parser.parse_args()
 
-    args = parser.parse_args()
+def main():
+    args = parse_arguments()
     args = vars(args)
-    # check for new ontologies
-    # todo: undo the commented lines
-    
-    # ontology_group = OntologyGroup()
-    # ontology_group.load_ontologies()
-    # ontology_group.start()
 
-    # update obda file
+    # Uncomment the following line if ontology loading and processing is required.
+    # process_ontologies()
+
     mapping_file_name = "semantics/BioMedOnto.obda"
-    update_mapping(mapping_file_name)
-
     owl_file_name = "semantics/BioMedOnto.owl"
-    update_owl(owl_file_name)
 
-    # ontop materialize
-    # todo: undo the commented lines
-    materialize(mapping=mapping_file_name,
-                ontology=owl_file_name,
-                output=args["output_file"],
-                properties="semantics/BioMedOnto.properties"
-                )
-    # ontology_export(args["output_file"])
+    update_semantics(mapping_file_name, owl_file_name)
+
+    # Materialize the ontop using provided files and arguments
+    materialize(
+        mapping=mapping_file_name,
+        ontology=owl_file_name,
+        output=args["output_file"],
+        properties="semantics/BioMedOnto.properties"
+    )
+
+    # Uncomment if export is needed:
+    # ontology_export(args.output_file)
 
 
+if __name__ == '__main__':
+    main()
