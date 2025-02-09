@@ -79,7 +79,7 @@ def main_genes_hgnc():
     jobs = []
 
     chunk_size = math.ceil(len(gene_lst) / num_processes)
-    
+
     for i in range(num_processes):
         lb = i * chunk_size
         up = min((i + 1) * chunk_size, len(gene_lst))
