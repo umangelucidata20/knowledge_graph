@@ -4,84 +4,82 @@ import json
 import requests
 import pandas as pd
 from multiprocessing import Process, Manager
-from scripts.create_db import save_to_db,read_from_db, add_node_table_name
+from scripts.create_db import save_to_db, read_from_db, add_node_table_name
+
+DEFAULT_GENE_RESPONSE = {
+    "symbol": "",
+    "synonyms": [],
+    "name": "",
+    "description": "",
+    "ncbiEntrezGeneId": -1,
+    "ncbiEntrezGeneUrl": "",
+    "proteins": [],
+    "hgncRootFamilies": [],
+}
 
 
 def return_json(url):
+    """
+    Fetches JSON data from the provided URL.
+    If the request fails or returns a non-200 status code, returns a default gene response.
+    """
     try:
         response = requests.get(url)
-    except:
+        if response.status_code == 200:
+            return json.loads(response.text)
+    except Exception:
         print("Timed out")
         print(url)
-        return {"symbol": "",
-                "synonyms": [],
-                "name": "",
-                "description": "",
-                "ncbiEntrezGeneId": -1,
-                "ncbiEntrezGeneUrl": "",
-                "proteins": [],
-                "hgncRootFamilies": []}
+    return DEFAULT_GENE_RESPONSE
 
-    if response.status_code == 200:
-        data = json.loads(response.text)
-        return data
 
-    else:
-        return {"symbol": "",
-                "synonyms": [],
-                "name": "",
-                "description": "",
-                "ncbiEntrezGeneId": -1,
-                "ncbiEntrezGeneUrl": "",
-                "proteins": [],
-                "hgncRootFamilies": []}
+def join_items(items, sep, key=None):
+    """
+    Joins a list of items into a string separated by 'sep'.
+    If 'key' is provided, it extracts that key's value from each dictionary in the list.
+    """
+    if not items:
+        return ""
+    if key:
+        return sep.join(item.get(key, "") for item in items)
+    return sep.join(items)
 
 
 def gene_properties(gene_lst, num, return_dict):
     base_url = "https://maayanlab.cloud/Harmonizome/api/1.0/gene/"
 
-    gene_prop_dict = {"gene_id": [],
-                      "synonyms": [],
-                      "name": [],
-                      "definition": [],
-                      "NcbiEntrezGeneId": [],
-                      "NcbiEntrezGeneUrl": [],
-                      "proteins": [],
-                      "HgncRootFamilies": []}
+    gene_prop_dict = {
+        "gene_id": [],
+        "synonyms": [],
+        "name": [],
+        "definition": [],
+        "NcbiEntrezGeneId": [],
+        "NcbiEntrezGeneUrl": [],
+        "proteins": [],
+        "HgncRootFamilies": [],
+    }
 
     for gene in gene_lst:
         url = base_url + gene
         gene_props = return_json(url)
-        gene_prop_dict['gene_id'].append(gene)
-
-        synonyms = ""
-        if gene_props['synonyms']:
-            for i in range(len(gene_props['synonyms'])):
-                synonyms += gene_props['synonyms'][i]
-                if i != len(gene_props['synonyms']) - 1:
-                    synonyms += ';'
-        gene_prop_dict['synonyms'].append(synonyms)
-
-        gene_prop_dict['name'].append(gene_props['name'])
-        gene_prop_dict['definition'].append(gene_props['description'])
-        gene_prop_dict['NcbiEntrezGeneId'].append(gene_props['ncbiEntrezGeneId'])
-        gene_prop_dict['NcbiEntrezGeneUrl'].append(gene_props['ncbiEntrezGeneUrl'])
-
-        proteins = ""
-        if gene_props['proteins']:
-            for i in range(len(gene_props['proteins'])):
-                proteins += gene_props['proteins'][i]['symbol']
-                if i != len(gene_props['proteins']) - 1:
-                    proteins += ','
-        gene_prop_dict['proteins'].append(proteins)
-
-        root_family = ""
-        if gene_props['hgncRootFamilies']:
-            for i in range(len(gene_props['hgncRootFamilies'])):
-                root_family += gene_props['hgncRootFamilies'][i]['name']
-                if i != len(gene_props['hgncRootFamilies']) - 1:
-                    root_family += ','
-        gene_prop_dict['HgncRootFamilies'].append(root_family)
+        gene_prop_dict["gene_id"].append(gene)
+        gene_prop_dict["synonyms"].append(
+            join_items(gene_props.get("synonyms", []), ";")
+        )
+        gene_prop_dict["name"].append(gene_props.get("name", ""))
+        gene_prop_dict["definition"].append(gene_props.get("description", ""))
+        gene_prop_dict["NcbiEntrezGeneId"].append(
+            gene_props.get("ncbiEntrezGeneId", -1)
+        )
+        gene_prop_dict["NcbiEntrezGeneUrl"].append(
+            gene_props.get("ncbiEntrezGeneUrl", "")
+        )
+        gene_prop_dict["proteins"].append(
+            join_items(gene_props.get("proteins", []), ",", key="symbol")
+        )
+        gene_prop_dict["HgncRootFamilies"].append(
+            join_items(gene_props.get("hgncRootFamilies", []), ",", key="name")
+        )
 
     return_dict[num] = gene_prop_dict
 
@@ -91,10 +89,13 @@ def retrive_gene_properties(gene_lst):
 
     return_dict = Manager().dict()
     jobs = []
+    chunk_size = math.ceil(len(gene_lst) / num_processes)
 
     for i in range(num_processes):
-        lb = i * math.ceil(len(gene_lst) / num_processes)
-        up = min((i + 1) * math.ceil(len(gene_lst) / num_processes), len(gene_lst))
+        lb = i * chunk_size
+        up = min((i + 1) * chunk_size, len(gene_lst))
+        if lb >= len(gene_lst):
+            break
 
         p = Process(target=gene_properties, args=(gene_lst[lb:up], i, return_dict))
         jobs.append(p)
@@ -103,27 +104,24 @@ def retrive_gene_properties(gene_lst):
     for process in jobs:
         process.join()
 
-    df = pd.concat([pd.DataFrame(return_dict[i]) for i in range(len(return_dict))])
-
+    dfs = [pd.DataFrame(return_dict[i]) for i in sorted(return_dict.keys())]
+    df = pd.concat(dfs, ignore_index=True)
     return df
 
 
 def main_genes():
     # present in disease gene associations
     df = read_from_db("disease__associated_with__relation")
-    gene_lst = list(set(df['gene_target']))  
+    gene_lst = list(set(df["gene_target"]))
 
-    gene_nodes = retrive_gene_properties(gene_lst)        # remove the list slice
-    gene_nodes['type'] = 'gene'
-    add_node_table_name(['gene__nodes','gene',';'.join(gene_nodes.columns),'not_mapped'])
+    gene_nodes = retrive_gene_properties(gene_lst)  # remove the list slice
+    gene_nodes["type"] = "gene"
+    add_node_table_name(
+        ["gene__nodes", "gene", ";".join(gene_nodes.columns), "not_mapped"]
+    )
     save_to_db(gene_nodes, "gene__nodes")
+
 
 # main
-if __name__ == '__main__':
-    # find gene node properties for genes
-    # present in disease gene associations
-    df = read_from_db("disease__associated_with__relation")
-    gene_lst = list(set(df['gene']))
-
-    gene_nodes = retrive_gene_properties(gene_lst[:30])
-    save_to_db(gene_nodes, "gene__nodes")
+if __name__ == "__main__":
+    main_genes()
