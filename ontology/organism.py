@@ -66,10 +66,6 @@ def get_synonyms(resp_dict, term):
 
 
 def organsims():
-    """
-    Process organism terms from a CSV file, retrieve associated identifiers and synonyms via API calls,
-    then save the results to a CSV file and update the database.
-    """
 
     organsim_names_df = pd.read_csv("ontologies/organisms.csv", sep=",")
     terms = organsim_names_df["terms"]
